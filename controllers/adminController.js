@@ -342,7 +342,7 @@ export const showAllBookingAdmin = async (req, res) => {
         as: "cats",
       },
     },
-    { $unwind: "$cats" },
+    // { $unwind: "$cats" },
     {
       $lookup: {
         from: "companies", // Name of the company model collection
@@ -459,15 +459,67 @@ export const cancelAdminBooking = async (req, res) => {
   const { userId } = req.user;
   const { id } = req.params;
 
-  const company = (await AdminModel.findOne({ _id: userId })).company;
+  let deletedBooking;
 
-  const hotel = await HotelModel.findOne({ company: company });
+  const checkBooking = await BookingModel.aggregate([
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(id),
+      },
+    },
+    {
+      $lookup: {
+        from: "hotels", // Name of the hotel model collection
+        localField: "hotel",
+        foreignField: "_id",
+        as: "hotel",
+      },
+    },
+    { $unwind: "$hotel" },
+    {
+      $lookup: {
+        from: "companies",
+        localField: "hotel.company",
+        foreignField: "_id",
+        as: "hotel.company",
+      },
+    },
+    { $unwind: "$hotel.company" },
+    {
+      $lookup: {
+        from: "admins",
+        localField: "hotel.company._id",
+        foreignField: "company",
+        as: "admin",
+      },
+    },
+    { $unwind: "$admin" },
+    {
+      $match: {
+        "admin._id": new mongoose.Types.ObjectId(userId),
+      },
+    },
+  ]);
 
-  const deletedBooking = await BookingModel.findOneAndUpdate(
-    { hotel: hotel, _id: id, deleted: false },
-    { cancelledBy: "admin" },
-    { new: true }
-  );
+  if (checkBooking.length === 1) {
+    deletedBooking = await BookingModel.findOneAndUpdate(
+      { _id: id, deleted: false, status: "Approved" },
+      { cancelledBy: "admin", status: "Cancelled" },
+      { new: true }
+    );
+  }
+
+  // const company = (await AdminModel.findOne({ _id: userId })).company;
+
+  // const hotel = await HotelModel.find({ company: company });
+  // console.log("hotel", hotel);
+  // console.log("id", id);
+  // const deletedBooking = await BookingModel.findOneAndUpdate(
+  //   { hotel: hotel._id, _id: id, deleted: false },
+  //   { cancelledBy: "admin", status: "Cancelled" },
+  //   { new: true }
+  // );
+  // console.log("deletedBooking", deletedBooking);
   res.status(200).json(deletedBooking);
 };
 

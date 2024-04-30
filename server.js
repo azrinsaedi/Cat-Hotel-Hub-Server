@@ -7,6 +7,7 @@ import errorHandlerMiddleware from "./middleware/errorHandlerMiddleware.js";
 import { authenticateUser } from "./middleware/authMiddleware.js";
 import adminRouter from "./routes/adminRouter.js";
 import accountRouter from "./routes/accountRouter.js";
+import publicRouter from "./routes/publicRouter.js";
 import authRouter from "./routes/authRouter.js";
 import cookieParser from "cookie-parser";
 import cloudinary from "cloudinary";
@@ -53,6 +54,7 @@ app.use("/api/v1/customer/auth", authRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/account", accountRouter);
 app.use("/api/v1/booking", adminRouter);
+app.use("/api/v1/public", publicRouter);
 
 // app.use("*", (req, res) => {
 //   res.status(404).json({ msg: "not found" });

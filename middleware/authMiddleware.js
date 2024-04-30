@@ -18,7 +18,7 @@ export const authenticateUser = async (req, res, next) => {
 };
 
 export const checkForTestUser = (req, res, next) => {
-  if (req.user.testUser) {
+  if (req?.user?.testUser) {
     throw new BadRequestError("Demo User. Read Only!");
   }
   next();

@@ -8,6 +8,8 @@ const HotelSchema = new mongoose.Schema(
       ref: "Company",
     },
     deleted: { type: Boolean, default: false },
+    priceInCents: { type: Number },
+    currency: { type: String },
   },
   { timestamps: true }
 );

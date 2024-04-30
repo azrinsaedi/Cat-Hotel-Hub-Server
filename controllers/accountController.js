@@ -5,6 +5,7 @@ import { hashPassword, comparePassword } from "../utils/passwordUtils.js";
 import { createJWT, verifyJWT } from "../utils/tokenUtils.js";
 import { createCookie, removeCookie } from "../utils/cookieUtils.js";
 import nodemailer from "nodemailer";
+import mongoose from "mongoose";
 import BookingModel from "../models/BookingModel.js";
 import CatsModel from "../models/CatsModel.js";
 import CustomersModel from "../models/AccountsModel.js";
@@ -179,6 +180,17 @@ export const editPet = async (req, res) => {
   res.send(updatedPet);
 };
 
+export const getSinglePet = async (req, res) => {
+  const { userId } = req.user;
+  const { id } = req.params;
+  const fetchedCat = await CatsModel.findOne({ customer: userId, _id: id });
+  if (!fetchedCat) {
+    res.send("No cat with that id to the user");
+    return;
+  }
+  res.send(fetchedCat);
+};
+
 export const deletePet = async (req, res) => {
   const { userId } = req.user;
   const { id } = req.params;
@@ -192,20 +204,61 @@ export const deletePet = async (req, res) => {
 };
 
 export const showAllPets = async (req, res) => {
+  const { search, name, sort } = req.query;
   const { userId } = req.user;
-  const pets = await CatsModel.find({ customer: userId });
-  res.status(200).json({ pets });
+
+  const queryObject = {
+    customer: userId,
+    deleted: false,
+  };
+  if (search) {
+    queryObject.$or = [{ name: { $regex: search, $options: "i" } }];
+  }
+
+  if (name && name !== null) {
+    queryObject.name = name;
+  }
+
+  const sortOptions = {
+    newest: "-createdAt",
+    oldest: "createdAt",
+    "a-z": "position",
+    "z-a": "-position",
+  };
+  const sortKey = sortOptions[sort] || sortOptions.newest;
+
+  // setup pagination
+  const page = Number(req.query.page) || 1;
+  const limit = Number(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const cats = await CatsModel.find(queryObject)
+    .sort(sortKey)
+    .skip(skip)
+    .limit(limit);
+
+  const totalCats = await CatsModel.countDocuments(queryObject);
+  const numOfPages = Math.ceil(totalCats / limit);
+  res
+    .status(StatusCodes.OK)
+    .json({ totalCats, numOfPages, currentPage: page, cats });
+
+  // const { userId } = req.user;
+  // const pets = await CatsModel.find({ customer: userId });
+  // res.status(200).json({ pets });
 };
 
 export const addBooking = async (req, res) => {
   const { userId } = req.user;
-  const { hotel, check_in, check_out, cats, occupied_rooms } = req.body;
+
+  const { hotel, check_in, check_out, cats, occupied_rooms, status } = req.body;
   const booking = await BookingModel.create({
     customer: userId,
     hotel,
     check_in,
     check_out,
-    cats,
+    cats: JSON.parse(cats),
+    status,
     occupied_rooms,
   });
   res.send(booking);
@@ -213,7 +266,9 @@ export const addBooking = async (req, res) => {
 
 export const showAllBookings = async (req, res) => {
   const { userId } = req.user;
-  const bookings = await BookingModel.find({ customer: userId });
+  const bookings = await BookingModel.find({ customer: userId })
+    .populate("hotel")
+    .populate("cats");
   res.status(200).json({ bookings });
 };
 
@@ -228,7 +283,7 @@ export const cancelCustomerBooking = async (req, res) => {
   const { id } = req.params;
   const deletedBooking = await BookingModel.findOneAndUpdate(
     { customer: userId, _id: id, deleted: false },
-    { cancelledBy: "customer" },
+    { cancelledBy: "customer", status: "Cancelled" },
     { new: true }
   );
   res.status(200).json(deletedBooking);
@@ -237,6 +292,25 @@ export const getCurrentUser = async (req, res) => {
   const customer = await CustomersModel.findOne({ _id: req.user.userId });
   const userWithoutPassword = customer.toJSON();
   res.status(StatusCodes.OK).json({ customer: userWithoutPassword });
+};
+
+export const getCurrentUserDetails = async (req, res) => {
+  const customer = await CustomersModel.aggregate([
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(req.user.userId), // Match based on the current user's ID
+      },
+    },
+    {
+      $lookup: {
+        from: "cats", //name of other model
+        localField: "_id",
+        foreignField: "customer",
+        as: "cats",
+      },
+    },
+  ]);
+  res.status(StatusCodes.OK).json(customer);
 };
 
 export const getApplicationStats = async (req, res) => {

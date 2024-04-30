@@ -21,9 +21,14 @@ const BookingSchema = new mongoose.Schema(
       type: String,
       enum: ["admin", "customer"],
     },
+    status: {
+      type: String,
+      enum: ["Cancelled", "Approved", "Pending"],
+    },
     rating: { type: Number, default: null },
     comment: { type: String, default: null },
     occupied_rooms: Number,
+    deleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
