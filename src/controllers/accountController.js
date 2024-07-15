@@ -10,6 +10,11 @@ import BookingModel from "../models/BookingModel.js";
 import CatsModel from "../models/CatsModel.js";
 import CustomersModel from "../models/AccountsModel.js";
 import AccountsModel from "../models/AccountsModel.js";
+import cloudinary from "cloudinary";
+import { formatImage } from "../middleware/multerMiddleware.js";
+
+import stripe from "stripe";
+import RatingModel from "../models/RatingModel.js";
 
 export const registerAccount = async (req, res) => {
   const hashedPassword = await hashPassword(req.body.password);
@@ -40,13 +45,23 @@ export const registerAccount = async (req, res) => {
 export const loginAccount = async (req, res) => {
   const account = await AccountsModel.findOne({ email: req.body.email });
   const password = req.body.password;
+  let rememberMe = "off";
+  if (req.body.remember) {
+    rememberMe = req.body.remember;
+  }
+
   const tokenData = createJWT({ userId: account._id });
 
   const isValidAccount =
     account && (await comparePassword(password, account.password));
   if (!isValidAccount) throw new UnauthenticatedError("invalid credentials");
 
-  createCookie({ tokenName: "tokenAccount", tokenData, res });
+  createCookie({
+    tokenName: "tokenAccount",
+    tokenData,
+    rememberMe: rememberMe,
+    res,
+  });
 
   res.status(StatusCodes.CREATED).json({ msg: "account logged in" });
 };
@@ -157,9 +172,38 @@ export const updateAccount = async (req, res) => {
 };
 
 export const addPet = async (req, res) => {
+  const newCat = { ...req.body };
+
   const { userId } = req.user;
-  const { name } = req.body;
-  const cat = await CatsModel.create({ customer: userId, name: name });
+
+  if (req.files && req.files.length > 0) {
+    try {
+      // Map through each uploaded file and upload it to Cloudinary
+      const uploadPromises = req.files.map(async (file) => {
+        const formattedFile = formatImage(file);
+        const response = await cloudinary.v2.uploader.upload(formattedFile);
+        return response.secure_url; // Return the secure URL of each uploaded file
+      });
+
+      // Wait for all uploads to complete
+      const uploadedImages = await Promise.all(uploadPromises);
+
+      // Assign the uploaded images to the newHotel object
+      newCat.images = uploadedImages;
+    } catch (error) {
+      console.error("Error uploading images:", error);
+      return res.status(500).json({ msg: "Error uploading images" });
+    }
+  }
+  const { name, microchip, images, type } = newCat;
+  console.log("newCat", newCat);
+  const cat = await CatsModel.create({
+    customer: userId,
+    name: name,
+    microchip,
+    images,
+    type,
+  });
   res.send(cat);
 };
 
@@ -249,19 +293,88 @@ export const showAllPets = async (req, res) => {
 };
 
 export const addBooking = async (req, res) => {
-  const { userId } = req.user;
+  try {
+    const { userId } = req.user;
 
-  const { hotel, check_in, check_out, cats, occupied_rooms, status } = req.body;
-  const booking = await BookingModel.create({
-    customer: userId,
-    hotel,
-    check_in,
-    check_out,
-    cats: JSON.parse(cats),
-    status,
-    occupied_rooms,
-  });
-  res.send(booking);
+    const {
+      hotel,
+      check_in,
+      check_out,
+      cats,
+      occupied_rooms,
+      status,
+      currency,
+      price_in_cents,
+    } = req.body;
+
+    let { extraServices } = req.body;
+
+    // Handle extraServices being null or an empty string
+    if (extraServices && extraServices.trim() !== "") {
+      extraServices = extraServices.split(",").map((service) => service.trim());
+    } else {
+      extraServices = [];
+    }
+
+    console.log("cats", cats);
+    console.log("extraServices", extraServices);
+
+    // Payment Intent
+    const stripeInstance = stripe(process.env.STRIPE_SECRET_KEY);
+
+    const paymentIntent = await stripeInstance.paymentIntents.create({
+      amount: price_in_cents,
+      currency: currency,
+      automatic_payment_methods: {
+        enabled: true,
+      },
+    });
+
+    console.log(paymentIntent);
+
+    let booking = await BookingModel.create({
+      customer: userId,
+      hotel,
+      check_in,
+      check_out,
+      currency,
+      cats: cats.split(",").map((cat) => cat.trim()),
+      status,
+      extraServices,
+      occupied_rooms,
+      payment_ID: paymentIntent.id,
+      price_in_cents,
+    });
+
+    booking = await booking.populate("hotel");
+    res.send({ booking, paymentIntent });
+  } catch (error) {
+    console.error("Error creating booking:", error);
+    res
+      .status(500)
+      .send({ error: "An error occurred while creating the booking" });
+  }
+};
+
+export const updateBookingSuccess = async (req, res) => {
+  const { userId } = req.user;
+  const { payment_ID } = req.body;
+
+  try {
+    let booking = await BookingModel.findOneAndUpdate(
+      {
+        customer: new mongoose.Types.ObjectId(userId),
+        payment_ID: payment_ID,
+      },
+      { status: "Approved" },
+      { new: true }
+    );
+    booking = await booking.populate("hotel");
+    res.send({ booking });
+  } catch (error) {
+    console.error("Error updating booking:", error);
+    res.status(500).send({ error: "Internal server error" });
+  }
 };
 
 export const showAllBookings = async (req, res) => {
@@ -294,6 +407,28 @@ export const getCurrentUser = async (req, res) => {
   res.status(StatusCodes.OK).json({ customer: userWithoutPassword });
 };
 
+export const getCurrentUserFetch = async (req, res) => {
+  const { tokenAccount } = req.cookies;
+
+  if (!tokenAccount || tokenAccount === undefined) {
+    res.send("");
+    return;
+  }
+
+  try {
+    const { userId } = verifyJWT(tokenAccount);
+    req.user = { userId };
+    const customer = await CustomersModel.findOne({ _id: req.user.userId });
+    res.send(customer);
+  } catch (error) {
+    res.send("");
+  }
+
+  // const customer = await CustomersModel.findOne({ _id: req.user.userId });
+  // const userWithoutPassword = customer.toJSON();
+  // res.status(StatusCodes.OK).json({ customer: userWithoutPassword });
+};
+
 export const getCurrentUserDetails = async (req, res) => {
   const customer = await CustomersModel.aggregate([
     {
@@ -311,6 +446,48 @@ export const getCurrentUserDetails = async (req, res) => {
     },
   ]);
   res.status(StatusCodes.OK).json(customer);
+};
+
+export const postAddWishlist = async (req, res) => {
+  const { userId } = req.user;
+  const { id } = req.params;
+
+  try {
+    // Check if the id already exists in the wishlist array
+    const user = await AccountsModel.findOne({ _id: userId });
+    if (user.wishlist.includes(id)) {
+      return res.status(StatusCodes.OK).json(user);
+    }
+
+    // Append id to the wishlist array
+    const updatedWishlist = await AccountsModel.findOneAndUpdate(
+      { _id: userId },
+      { $push: { wishlist: id } },
+      { new: true }
+    );
+
+    console.log(id);
+    res.status(StatusCodes.OK).json(updatedWishlist);
+  } catch (error) {
+    console.error("Error adding item to wishlist:", error);
+    res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json({ error: "Internal server error" });
+  }
+};
+
+export const postComment = async (req, res) => {
+  const { id } = req.params;
+  const { rating, comment, title } = req.body;
+  const { userId } = req.user;
+  await RatingModel.create({
+    hotel: id,
+    rating,
+    title,
+    comment,
+    customer: userId,
+  });
+  res.status(StatusCodes.OK).json({ id, rating, comment });
 };
 
 export const getApplicationStats = async (req, res) => {

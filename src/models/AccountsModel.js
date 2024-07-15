@@ -22,6 +22,7 @@ const AccountsSchema = new mongoose.Schema(
     avatar: String,
     avatarPublicId: String,
     forgotPassword: { type: String, default: null },
+    wishlist: [{ type: String }],
   },
   { timestamps: true }
 );

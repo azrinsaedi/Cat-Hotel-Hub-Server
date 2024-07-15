@@ -17,7 +17,7 @@ import { formatImage } from "../middleware/multerMiddleware.js";
 
 export const getCurrentAdmin = async (req, res) => {
   const user = await AdminModel.findOne({ _id: req.user.userId });
-  console.log(user);
+  // console.log(user);
   res.status(StatusCodes.OK).json({ user });
 };
 
@@ -61,7 +61,7 @@ export const registerAdmin = async (req, res) => {
 
 export const loginAdmin = async (req, res) => {
   const admin = await AdminModel.findOne({ email: req.body.email });
-  console.log(admin);
+  // console.log(admin);
   const password = req.body.password;
   const tokenData = createJWT({ userId: admin._id, role: admin.role });
   const isValidAdmin =
@@ -132,7 +132,7 @@ export const executeForgotPasswordAdmin = async (req, res) => {
     res.send("Token is wrong");
     return;
   }
-  console.log(id, token, email);
+  // console.log(id, token, email);
   res.send(`Admin ID is ${id} and code ${token} and email ${email}`);
 };
 
@@ -158,8 +158,9 @@ export const updateAdmin = async (req, res) => {
     // await fs.unlink(req.file.path);
     const file = formatImage(req.file);
     const response = await cloudinary.v2.uploader.upload(file);
+    // console.log("response", response);
     newAdmin.avatar = response.secure_url;
-    newAdmin.avatarPublicId = response.public_id;
+    // newAdmin.avatarPublicId = response.public_id;
   }
 
   const updatedAdmin = await AdminModel.findByIdAndUpdate(
@@ -174,9 +175,65 @@ export const updateAdmin = async (req, res) => {
 };
 
 export const addHotel = async (req, res) => {
-  const { name, total_rooms } = req.body;
+  const newHotel = { ...req.body };
+  console.log("newHotel", newHotel);
+
+  // const { name, total_rooms } = req.body;
 
   const { userId, role } = req.user;
+
+  // console.log(req);
+
+  // if (req.files) {
+  //   // const response = await cloudinary.v2.uploader.upload(req.file.path);
+  //   // await fs.unlink(req.file.path);
+  //   const files = formatImage(req.files);
+  //   const response = await cloudinary.v2.uploader.upload(files);
+  //   newHotel.mainImage = response.secure_url;
+  //   newHotel.mainImagePublicID = response.public_id;
+  // }
+
+  if (req.files && req.files.length > 0) {
+    try {
+      // Map through each uploaded file and upload it to Cloudinary
+      const uploadPromises = req.files.map(async (file) => {
+        const formattedFile = formatImage(file);
+        const response = await cloudinary.v2.uploader.upload(formattedFile);
+        return response.secure_url; // Return the secure URL of each uploaded file
+      });
+
+      // Wait for all uploads to complete
+      const uploadedImages = await Promise.all(uploadPromises);
+
+      // Assign the uploaded images to the newHotel object
+      newHotel.images = uploadedImages;
+    } catch (error) {
+      console.error("Error uploading images:", error);
+      return res.status(500).json({ msg: "Error uploading images" });
+    }
+  }
+
+  const {
+    name,
+    total_rooms,
+    images,
+    country,
+    state,
+    city,
+    addressLine1,
+    addressLine2,
+    postcode,
+    description,
+    currency,
+    amount,
+    vaccine,
+    microchipped,
+    discount,
+  } = newHotel;
+
+  let { extraServices } = newHotel;
+
+  // console.log("newHotel", newHotel);
 
   const company = (
     await AdminModel.findOne({
@@ -190,13 +247,135 @@ export const addHotel = async (req, res) => {
       .json({ msg: "please provide company, name and total rooms" });
   }
 
+  extraServices = JSON.parse(extraServices);
+
   try {
-    const hotel = await HotelModel.create({ company, total_rooms, name });
+    const hotel = await HotelModel.create({
+      company,
+      total_rooms,
+      name,
+      images,
+      location: { country, state, city, addressLine1, addressLine2, postcode },
+      description,
+      price: { amount, currency, discountInPercentage: discount },
+      requirements: { vaccine, microchipped },
+      extraServices,
+    });
     res.status(201).json({ hotel });
   } catch (error) {
     res.status(500).json({ msg: "server error" });
   }
 };
+
+// export const addHotel = async (req, res) => {
+//   const newHotel = { ...req.body };
+//   console.log("newHotel", newHotel);
+
+//   // const { name, total_rooms } = req.body;
+
+//   const {
+//     name,
+//     total_rooms,
+
+//     country,
+//     state,
+//     city,
+//     addressLine1,
+//     addressLine2,
+//     postcode,
+//     description,
+//     currency,
+//     amount,
+//     vaccine,
+//     discount,
+//   } = newHotel;
+
+//   let { images, extraServices } = newHotel;
+
+//   const { userId, role } = req.user;
+
+//   // console.log(req);
+
+//   // if (req.files) {
+//   //   // const response = await cloudinary.v2.uploader.upload(req.file.path);
+//   //   // await fs.unlink(req.file.path);
+//   //   const files = formatImage(req.files);
+//   //   const response = await cloudinary.v2.uploader.upload(files);
+//   //   newHotel.mainImage = response.secure_url;
+//   //   newHotel.mainImagePublicID = response.public_id;
+//   // }
+
+//   if (req.files && req.files.length > 0) {
+//     try {
+//       // Map through each uploaded file and upload it to Cloudinary
+//       const uploadPromises = req.files.map(async (file) => {
+//         const formattedFile = formatImage(file);
+//         const response = await cloudinary.v2.uploader.upload(formattedFile);
+//         return response.secure_url; // Return the secure URL of each uploaded file
+//       });
+
+//       // Wait for all uploads to complete
+//       const uploadedImages = await Promise.all(uploadPromises);
+
+//       // Assign the uploaded images to the newHotel object
+//       newHotel.images = uploadedImages;
+//     } catch (error) {
+//       console.error("Error uploading images:", error);
+//       return res.status(500).json({ msg: "Error uploading images" });
+//     }
+//   }
+
+//   // const {
+//   //   name,
+//   //   total_rooms,
+//   //   images,
+//   //   country,
+//   //   state,
+//   //   city,
+//   //   addressLine1,
+//   //   addressLine2,
+//   //   postcode,
+//   //   description,
+//   //   currency,
+//   //   amount,
+//   //   vaccine,
+//   //   discount,
+//   //   extraServices,
+//   // } = req.body;
+//   extraServices = JSON.parse(extraServices);
+//   console.log("extraServices", typeof extraServices);
+
+//   console.log("newHotel", newHotel);
+
+//   const company = (
+//     await AdminModel.findOne({
+//       _id: userId,
+//     }).populate("company")
+//   ).company;
+
+//   if (!company || !name || !total_rooms) {
+//     return res
+//       .status(400)
+//       .json({ msg: "please provide company, name and total rooms" });
+//   }
+
+//   try {
+//     const hotel = await HotelModel.create({
+//       company,
+//       total_rooms,
+//       name,
+//       images,
+//       location: { country, state, city, addressLine1, addressLine2, postcode },
+//       description,
+//       price: { amount, currency, discountInPercentage: discount },
+//       requirements: { vaccine },
+//       extraServices,
+//     });
+//     res.status(201).json({ hotel });
+//   } catch (error) {
+//     res.status(500).json({ msg: "server error" });
+//   }
+// };
 
 export const showAllHotels = async (req, res) => {
   const { search, total_rooms, name, sort } = req.query;
@@ -209,7 +388,7 @@ export const showAllHotels = async (req, res) => {
     }).populate("company")
   ).company;
 
-  console.log(company);
+  // console.log(company);
 
   const queryObject = {
     company: company._id,
@@ -566,7 +745,7 @@ export const showStats = async (req, res) => {
     return acc;
   }, {});
 
-  console.log(stats);
+  // console.log(stats);
 
   const defaultStats = {
     pending: stats._id || 0,

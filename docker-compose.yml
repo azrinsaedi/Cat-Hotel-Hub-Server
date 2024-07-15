@@ -1,0 +1,28 @@
+version: "3.7"
+services:
+  pet_hotel_backend:
+    container_name: pet-hotel-backend-container
+    image: registry.gitlab.com/azrinsaedi/cat-hotel-hub-server:main
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - .:/
+    ports:
+      - "${PORT}:${PORT}"
+    networks:
+      - pet-hotel-network
+
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.docker.network=web"
+    #   - "traefik.http.routers.${CONTAINER_IMAGE}.entrypoints=https"
+    #   - "traefik.http.routers.${CONTAINER_IMAGE}.rule=Host(`${API_DOMAIN}`)"
+    #   - "traefik.http.routers.${CONTAINER_IMAGE}.tls=true"
+    #   - "traefik.http.routers.${CONTAINER_IMAGE}.tls.certresolver=default"
+    #   - "traefik.http.routers.${CONTAINER_IMAGE}.tls.options=default@file"
+
+networks:
+  # web:
+  #   external: true
+  pet-hotel-network:
+    external: true
